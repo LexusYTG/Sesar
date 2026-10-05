@@ -67,7 +67,7 @@ static Display *dpy;
 static int scr;
 static float S = 1.0f;
 static char self_path[1024] = "sesar-shell";
-static char prefix_dir[1024] = "/data/data/com.termux/files/usr";
+static char prefix_dir[1024] = "";
 static FT_Library ftlib;
 
 static int sc(float v) { return (int)lrintf(v * S); }
@@ -815,12 +815,8 @@ static void load_apps(void) {
     qsort(apps, (size_t)napps, sizeof *apps, app_cmp);
 }
 
-static void launch_app(const AppEntry *a) {
-    char cmd[2200];
-    if (a->term) snprintf(cmd, sizeof cmd, "%s -e %s", terminal_cmd(), a->exec);
-    else snprintf(cmd, sizeof cmd, "%s", a->exec);
-    spawn_cmd(cmd);
-}
+static void launch_app_ex(const AppEntry *a);
+static void launch_app(const AppEntry *a) { launch_app_ex(a); }
 
 /* ------------------------------------------------------------------ acciones */
 enum { ACT_TERM, ACT_FILES, ACT_RESTART, ACT_LOGOUT };
@@ -851,7 +847,7 @@ typedef struct {
     int *flt, nflt;
     const char *tabLabel[NCATS + 1];
     int tabCat[NCATS + 1], ntabs;
-    Rect tabR[NCATS + 1], searchR;
+    Rect tabR[NCATS + 1], searchR, infoR;
     Rect btnR[4];
     const char *btnLabel[4];
     int btnAct[4], btnStyle[4], nbtn;
@@ -884,6 +880,12 @@ static void menu_ensure_visible(Menu *m) {
 static void menu_layout(Menu *m) {
     m->pad = sc(16);
     m->rowH = sc(48);
+    {
+        int Rw = sc(15);
+        int titleX = m->pad + Rw * 2 + sc(12);
+        int titleW = text_width(m->F->title, "SESAR // INICIO", S * 2.f);
+        m->infoR = (Rect){titleX + titleW + sc(14), m->pad + sc(2), sc(26), sc(26)};
+    }
     m->rightW = m->W >= sc(560) ? sc(210) : 0;
     int leftW = m->W - m->pad * 2 - (m->rightW ? m->rightW + m->pad : 0);
     m->listX = m->pad;
@@ -934,6 +936,7 @@ static void menu_layout(Menu *m) {
 
 /* resultado de hit test: 0 nada, 1000+i fila, 2000+i tab, 3000+i boton */
 static int menu_hit(Menu *m, int x, int y) {
+    if (in_rect(m->infoR, x, y)) return 4000;
     for (int i = 0; i < m->nbtn; i++) if (in_rect(m->btnR[i], x, y)) return 3000 + i;
     for (int i = 0; i < m->ntabs; i++) if (in_rect(m->tabR[i], x, y)) return 2000 + i;
     if (x >= m->listX && x < m->listX + m->listW && y >= m->listY && y < m->listY + m->listH) {
@@ -957,6 +960,20 @@ static void menu_draw(App *a) {
     draw_hex(c, (float)(m->pad + R), (float)(m->pad + R + sc(2)), (float)R, C_CYAN, 0.12f, fmaxf(1.f, S * 1.4f), 1.f, 0.9f, (float)sc(6));
     draw_text_c(c, F->uib, m->pad + R, m->pad + R + sc(2) - F->uib->height / 2, "S", C_CYAN, 1.f, 0);
     draw_text(c, F->title, m->pad + R * 2 + sc(12), m->pad, "SESAR // INICIO", C_TEXT, 1.f, S * 2.f, 0);
+    {
+        Shape is; memset(&is, 0, sizeof is);
+        int hov = (m->hover == 4000);
+        is.cut = (float)sc(6);
+        is.top = hov ? C_MAGENTA : 0x0E1830;
+        is.bot = hov ? C_MAGENTA : 0x0A1226;
+        is.fa = hov ? 0.35f : 1.f;
+        is.stroke = C_MAGENTA; is.sa = hov ? 1.f : 0.8f; is.sw = fmaxf(1.f, S);
+        draw_chamfer(c, (float)m->infoR.x, (float)m->infoR.y,
+                     (float)m->infoR.w, (float)m->infoR.h, &is);
+        draw_text_c(c, F->uib, m->infoR.x + m->infoR.w / 2,
+                    m->infoR.y + (m->infoR.h - F->uib->height) / 2,
+                    "i", C_MAGENTA, 1.f, 0);
+    }
     char cnt[64];
     snprintf(cnt, sizeof cnt, "%d APPS", m->nflt);
     int cw = text_width(F->smb, cnt, S);
@@ -1102,7 +1119,8 @@ static void menu_button(App *a, int x, int y, int button, int press) {
     m->press = 0;
     if (m->moved) return;
     int h = menu_hit(m, x, y);
-    if (h >= 3000) { run_action(m->btnAct[h - 3000]); a->quit = 1; }
+    if (h == 4000) { char cmd[1400]; snprintf(cmd, sizeof cmd, "%s games", self_path); spawn_cmd(cmd); a->quit = 1; }
+    else if (h >= 3000) { run_action(m->btnAct[h - 3000]); a->quit = 1; }
     else if (h >= 2000) { m->cat = m->tabCat[h - 2000]; menu_refilter(m); a->dirty = 1; }
     else if (h >= 1000) { launch_app(&apps[m->flt[h - 1000]]); a->quit = 1; }
 }
@@ -1579,8 +1597,8 @@ static int run_appmenu(void) {
             if (first != c) continue;
             if (!any) { printf("<Menu label=\""); xml_esc(CAT_NAMES[c], stdout); printf("\">\n"); any = 1; }
             char cmd[2200];
-            if (a->term) snprintf(cmd, sizeof cmd, "%s -e %s", terminal_cmd(), a->exec);
-            else snprintf(cmd, sizeof cmd, "%s", a->exec);
+            if (a->term) snprintf(cmd, sizeof cmd, "%s -e gl-run %s", terminal_cmd(), a->exec);
+            else snprintf(cmd, sizeof cmd, "gl-run %s", a->exec);
             printf("<Program label=\""); xml_esc(a->name, stdout); printf("\">"); xml_esc(cmd, stdout); printf("</Program>\n");
         }
         if (any) printf("</Menu>\n");
@@ -1601,6 +1619,7 @@ L("  <StartupCommand>@SELF@ hud</StartupCommand>")
 L("")
 L("  <RootMenu onroot=`3`>")
 L("    <Program label=`Inicio`>@SELF@ menu</Program>")
+L("    <Program label=`Juegos soportados`>@SELF@ games</Program>")
 L("    <Program label=`Terminal`>@TERM@</Program>")
 L("    <Program label=`Archivos`>@SELF@ files</Program>")
 L("    <Separator/>")
@@ -1871,9 +1890,413 @@ static int run_files(void) {
     return 1;
 }
 
+
+/* ---------------------------------------------------------------- prefixes */
+
+typedef struct {
+    char binname[128];
+    char name[160];
+    char description[640];
+    char state[32];
+    char env[24][512];
+    int  nenv;
+    char args[512];
+    char graphics[32];
+    char audio[32];
+} PrefixEntry;
+
+static PrefixEntry *g_prefixes;
+static int g_nprefixes;
+
+static const char *PREFIXES_URL =
+    "https://raw.githubusercontent.com/LexusYTG/gladiator-init-setup/main/prefixes.json";
+
+static char *fetch_prefixes_json(void) {
+    /* 1) La app Android inyecta prefixes.json vía bind host-tmp.
+     *    Cero dependencias de curl/wget dentro del container. */
+    char *p = read_file("/host-tmp/prefixes.json");
+    if (p && *p) return p;
+    free(p);
+    p = read_file("/host-tmp/prefixes/prefixes.json");
+    if (p && *p) return p;
+    free(p);
+    /* 2) Fallback opcional: curl/wget dentro del container. */
+    const char *tmp = getenv("TMPDIR");
+    if (!tmp || !*tmp) tmp = "/tmp";
+    char fpath[1200];
+    snprintf(fpath, sizeof fpath, "%s/prefixes.json", tmp);
+    char cmd[1500];
+    snprintf(cmd, sizeof cmd,
+             "curl -sfL --max-time 8 '%s' -o '%s' 2>/dev/null || "
+             "wget -q -T 8 -O '%s' '%s' 2>/dev/null",
+             PREFIXES_URL, fpath, fpath, PREFIXES_URL);
+    if (system(cmd) != 0) return NULL;
+    return read_file(fpath);
+}
+
+static char *jget_str(const char *p, const char *end, const char *key,
+                      char *out, size_t n) {
+    char pat[128];
+    snprintf(pat, sizeof pat, "\"%s\"", key);
+    const char *k = p;
+    while ((k = strstr(k, pat)) && k < end) {
+        const char *q = k + strlen(pat);
+        while (q < end && (*q == ' ' || *q == '\t' || *q == ':' || *q == '\n' || *q == '\r')) q++;
+        if (q >= end || *q != '"') { k = q; continue; }
+        q++;
+        const char *s = q;
+        while (q < end && *q != '"') q++;
+        size_t L = (size_t)(q - s);
+        if (L >= n) L = n - 1;
+        memcpy(out, s, L); out[L] = 0;
+        return out;
+    }
+    out[0] = 0; return out;
+}
+
+static void parse_env_object(const char *p, const char *end, PrefixEntry *e) {
+    while (p < end) {
+        const char *k = memchr(p, '"', (size_t)(end - p));
+        if (!k) break;
+        k++;
+        const char *kend = memchr(k, '"', (size_t)(end - k));
+        if (!kend) break;
+        char key[128];
+        size_t kL = (size_t)(kend - k);
+        if (kL >= sizeof key) kL = sizeof key - 1;
+        memcpy(key, k, kL); key[kL] = 0;
+        const char *q = kend + 1;
+        while (q < end && (*q == ' ' || *q == ':')) q++;
+        if (q >= end || *q != '"') { p = kend + 1; continue; }
+        q++;
+        const char *vend = memchr(q, '"', (size_t)(end - q));
+        if (!vend) break;
+        char val[512];
+        size_t vL = (size_t)(vend - q);
+        if (vL >= sizeof val) vL = sizeof val - 1;
+        memcpy(val, q, vL); val[vL] = 0;
+        if (e->nenv < 24) {
+            snprintf(e->env[e->nenv], 512, "%s=%s", key, val);
+            e->nenv++;
+        }
+        p = vend + 1;
+    }
+}
+
+static int parse_prefixes(const char *json) {
+    if (!json) return 0;
+    const char *p = json;
+    while ((p = strstr(p, "\"binname\""))) {
+        const char *start = p;
+        while (start > json && *start != '{') start--;
+        int depth = 0;
+        const char *end = start;
+        while (*end) {
+            if (*end == '{') depth++;
+            else if (*end == '}') { depth--; if (depth == 0) { end++; break; } }
+            end++;
+        }
+        if (end <= start) break;
+        PrefixEntry e;
+        memset(&e, 0, sizeof e);
+        jget_str(start, end, "binname",     e.binname,     sizeof e.binname);
+        jget_str(start, end, "name",        e.name,        sizeof e.name);
+        jget_str(start, end, "description", e.description, sizeof e.description);
+        jget_str(start, end, "state",       e.state,       sizeof e.state);
+        jget_str(start, end, "args",        e.args,        sizeof e.args);
+        jget_str(start, end, "graphics",    e.graphics,    sizeof e.graphics);
+        jget_str(start, end, "audio",       e.audio,       sizeof e.audio);
+        const char *envk = strstr(start, "\"env\"");
+        if (envk && envk < end) {
+            const char *eb = strchr(envk, '{');
+            if (eb && eb < end) {
+                int ed = 1;
+                const char *ee = eb + 1;
+                while (*ee && ed) {
+                    if (*ee == '{') ed++;
+                    else if (*ee == '}') ed--;
+                    ee++;
+                }
+                parse_env_object(eb + 1, ee - 1, &e);
+            }
+        }
+        if (e.binname[0]) {
+            g_prefixes = realloc(g_prefixes, sizeof(PrefixEntry) * (size_t)(g_nprefixes + 1));
+            g_prefixes[g_nprefixes++] = e;
+        }
+        p = end;
+    }
+    return g_nprefixes;
+}
+
+static uint32_t state_color(const char *s) {
+    if (!strcasecmp(s, "very good")) return C_GREEN;
+    if (!strcasecmp(s, "good"))      return C_CYAN;
+    if (!strcasecmp(s, "limited"))   return C_AMBER;
+    if (!strcasecmp(s, "inwork"))    return C_VIOLET;
+    if (!strcasecmp(s, "fail"))      return C_RED;
+    return C_MUTED;
+}
+
+static void launch_prefix(const PrefixEntry *e) {
+    char envbuf[4096]; envbuf[0] = 0;
+    for (int i = 0; i < e->nenv; i++) {
+        size_t rem = sizeof envbuf - strlen(envbuf) - 1;
+        strncat(envbuf, "'", rem); rem = sizeof envbuf - strlen(envbuf) - 1;
+        strncat(envbuf, e->env[i], rem); rem = sizeof envbuf - strlen(envbuf) - 1;
+        strncat(envbuf, "' ", rem);
+    }
+    char cmd[4600];
+    snprintf(cmd, sizeof cmd, "env %s%s %s", envbuf, e->binname, e->args);
+    spawn_cmd(cmd);
+}
+
+/* ------------------------------------------------------------- app "games" */
+
+typedef struct {
+    Fonts *F;
+    int W, H, pad, cardH, listY, listH;
+    int sel, hover, scroll, press, px, py, scroll0, moved;
+} Games;
+
+static int games_maxscroll(Games *g) {
+    return imax(0, g_nprefixes * g->cardH - g->listH);
+}
+
+static void games_ensure_visible(Games *g) {
+    int top = g->sel * g->cardH;
+    if (top < g->scroll) g->scroll = top;
+    if (top + g->cardH > g->scroll + g->listH) g->scroll = top + g->cardH - g->listH;
+    g->scroll = imax(0, imin(g->scroll, games_maxscroll(g)));
+}
+
+static void games_layout(Games *g) {
+    g->pad = sc(16);
+    g->cardH = sc(84);
+    g->listY = g->pad + sc(34) + sc(8) + sc(10);
+    g->listH = g->H - g->listY - g->pad - sc(20);
+}
+
+static int games_hit(Games *g, int x, int y) {
+    if (x < g->pad || x >= g->W - g->pad) return -1;
+    if (y < g->listY || y >= g->listY + g->listH) return -1;
+    int row = (y - g->listY + g->scroll) / g->cardH;
+    if (row < 0 || row >= g_nprefixes) return -1;
+    return row;
+}
+
+static void games_draw(App *a) {
+    Games *g = a->u;
+    Canvas *c = &a->w->cv;
+    Fonts *F = g->F;
+    clip_reset(c);
+    fill_rect(c, 0, 0, g->W, g->H, C_BG, 1.f);
+    Shape ps = panel_shape();
+    draw_chamfer(c, 0, 0, (float)g->W, (float)g->H, &ps);
+
+    int R = sc(15);
+    draw_hex(c, (float)(g->pad + R), (float)(g->pad + R + sc(2)), (float)R, C_MAGENTA, 0.12f,
+             fmaxf(1.f, S * 1.4f), 1.f, 0.9f, (float)sc(6));
+    draw_text_c(c, F->uib, g->pad + R, g->pad + R + sc(2) - F->uib->height / 2, "G", C_MAGENTA, 1.f, 0);
+    draw_text(c, F->title, g->pad + R * 2 + sc(12), g->pad, "JUEGOS SOPORTADOS", C_TEXT, 1.f, S * 2.f, 0);
+    char cnt[64];
+    snprintf(cnt, sizeof cnt, "%d PREFIX", g_nprefixes);
+    int cw = text_width(F->smb, cnt, S);
+    draw_text(c, F->smb, g->W - g->pad - cw, g->pad + sc(6), cnt, C_MAGENTA, 1.f, S, 0);
+
+    clip_set(c, g->pad, g->listY, g->W - g->pad * 2, g->listH);
+    int first = g->scroll / g->cardH;
+    int last  = imin(g_nprefixes, (g->scroll + g->listH) / g->cardH + 2);
+    for (int i = first; i < last; i++) {
+        PrefixEntry *e = &g_prefixes[i];
+        int ry = g->listY + i * g->cardH - g->scroll;
+        int selected = (i == g->sel), hov = (g->hover == i);
+        uint32_t scol = state_color(e->state);
+        Shape cs;
+        memset(&cs, 0, sizeof cs);
+        cs.cut = (float)sc(10);
+        cs.top = 0x0E1830; cs.bot = 0x0A1226; cs.fa = 1.f;
+        cs.stroke = selected ? C_CYAN : (hov ? C_MUTED : C_LINE);
+        cs.sa = selected ? 1.f : (hov ? 0.7f : 0.5f);
+        cs.sw = fmaxf(1.f, S * 1.2f);
+        if (selected) { cs.glow = C_CYAN; cs.ga = 0.2f; cs.gw = (float)sc(10); }
+        draw_chamfer(c, (float)g->pad, (float)(ry + 3), (float)(g->W - g->pad * 2),
+                     (float)(g->cardH - 6), &cs);
+
+        int bw = text_width(F->smb, e->state, S * 0.5f) + sc(18);
+        int bh = sc(20);
+        int bx = g->W - g->pad - sc(10) - bw;
+        int by = ry + 3 + sc(10);
+        Shape bs;
+        memset(&bs, 0, sizeof bs);
+        bs.cut = (float)sc(5);
+        bs.top = scol; bs.bot = scol; bs.fa = 0.22f;
+        bs.stroke = scol; bs.sa = 1.f; bs.sw = fmaxf(1.f, S);
+        draw_chamfer(c, (float)bx, (float)by, (float)bw, (float)bh, &bs);
+        draw_text_c(c, F->smb, bx + bw / 2, by + (bh - F->smb->height) / 2,
+                    e->state, scol, 1.f, S * 0.5f);
+
+        int tx = g->pad + sc(14);
+        int ty = ry + 3 + sc(10);
+        int maxw = g->W - g->pad * 2 - sc(28) - bw - sc(16);
+        draw_text(c, F->uib, tx, ty, e->name, selected ? C_CYAN : C_TEXT, 1.f, 0, maxw);
+        ty += F->uib->height + sc(2);
+        char sub[200];
+        snprintf(sub, sizeof sub, "%s  ·  %s/%s", e->binname,
+                 e->graphics[0] ? e->graphics : "gl",
+                 e->audio[0] ? e->audio : "pulse");
+        draw_text(c, F->sm, tx, ty, sub, C_MUTED, 1.f, 0, maxw);
+        ty += F->sm->height + sc(4);
+        draw_text(c, F->sm, tx, ty, e->description, C_DIM, 0.9f, 0, maxw);
+    }
+    if (g_nprefixes == 0)
+        draw_text_c(c, F->ui, g->W / 2, g->listY + sc(40),
+                    "Sin datos. Abrí Gladiator con internet una vez para descargar la lista.", C_MUTED, 1.f, S);
+    if (games_maxscroll(g) > 0) {
+        int tw = imax(3, sc(4)), tx2 = g->W - g->pad - tw;
+        fill_rect(c, tx2, g->listY, tw, g->listH, C_LINE, 0.5f);
+        int th = imax(sc(24), g->listH * g->listH / (g_nprefixes * g->cardH));
+        int ty2 = g->listY + (g->listH - th) * g->scroll / games_maxscroll(g);
+        fill_rect(c, tx2, ty2, tw, th, C_MAGENTA, 0.85f);
+    }
+    clip_reset(c);
+
+    draw_text(c, F->sm, g->pad, g->H - g->pad - F->sm->height,
+              "ENTER lanzar  ·  ↑↓ navegar  ·  ESC cerrar",
+              C_MUTED, 1.f, S * 0.5f, g->W - g->pad * 2);
+}
+
+static void games_key(App *a, KeySym ks, int cp, unsigned st) {
+    Games *g = a->u;
+    (void)cp; (void)st;
+    a->dirty = 1;
+    if (ks == XK_Escape) { a->quit = 1; return; }
+    if (ks == XK_Return || ks == XK_KP_Enter) {
+        if (g->sel >= 0 && g->sel < g_nprefixes) { launch_prefix(&g_prefixes[g->sel]); a->quit = 1; }
+        return;
+    }
+    int page = imax(1, g->listH / g->cardH - 1);
+    if (ks == XK_Up)   { g->sel = imax(0, g->sel - 1); games_ensure_visible(g); return; }
+    if (ks == XK_Down) { g->sel = imin(imax(0, g_nprefixes - 1), g->sel + 1); games_ensure_visible(g); return; }
+    if (ks == XK_Home) { g->sel = 0; games_ensure_visible(g); return; }
+    if (ks == XK_End)  { g->sel = imax(0, g_nprefixes - 1); games_ensure_visible(g); return; }
+    if (ks == XK_Page_Down) { g->sel = imin(imax(0, g_nprefixes - 1), g->sel + page); games_ensure_visible(g); return; }
+    if (ks == XK_Page_Up)   { g->sel = imax(0, g->sel - page); games_ensure_visible(g); return; }
+}
+
+static void games_button(App *a, int x, int y, int button, int press) {
+    Games *g = a->u;
+    if (press && (button == 4 || button == 5)) {
+        g->scroll = imax(0, imin(games_maxscroll(g), g->scroll + (button == 5 ? 1 : -1) * g->cardH * 2));
+        a->dirty = 1;
+        return;
+    }
+    if (button != 1) return;
+    if (press) { g->press = 1; g->px = x; g->py = y; g->scroll0 = g->scroll; g->moved = 0; return; }
+    if (!g->press) return;
+    g->press = 0;
+    if (g->moved) return;
+    int h = games_hit(g, x, y);
+    if (h >= 0 && h < g_nprefixes) { launch_prefix(&g_prefixes[h]); a->quit = 1; }
+}
+
+static void games_motion(App *a, int x, int y) {
+    Games *g = a->u;
+    if (g->press) {
+        if (g->moved || abs(y - g->py) > sc(8)) {
+            g->moved = 1;
+            g->scroll = imax(0, imin(games_maxscroll(g), g->scroll0 - (y - g->py)));
+            a->dirty = 1;
+        }
+        return;
+    }
+    int h = games_hit(g, x, y);
+    if (h != g->hover) { g->hover = h; a->dirty = 1; }
+}
+
+static int run_games(void) {
+    if (!single_instance("games")) return 0;
+    char *json = fetch_prefixes_json();
+    parse_prefixes(json);
+    free(json);
+
+    Games *g = calloc(1, sizeof *g);
+    g->F = fonts_open();
+    int sw = DisplayWidth(dpy, scr), sh = DisplayHeight(dpy, scr);
+    g->W = imin(sc(620), sw - sc(8));
+    g->H = imin(sc(560), sh - sc(60));
+    g->hover = -1;
+    games_layout(g);
+
+    int x = (sw - g->W) / 2, y = (sh - g->H) / 2;
+    Win *w = win_create(x, y, g->W, g->H, 1, "sesar-games");
+    win_shape_chamfer(w, sc(18));
+    XMapRaised(dpy, w->win);
+    XSync(dpy, False);
+    grab_input(w);
+
+    App a = {0};
+    a.w = w; a.u = g;
+    a.draw = games_draw; a.key = games_key; a.button = games_button; a.motion = games_motion;
+    run_app(&a);
+
+    XUngrabKeyboard(dpy, CurrentTime);
+    XUngrabPointer(dpy, CurrentTime);
+    XSync(dpy, False);
+    return 0;
+}
+
+
+static void prefixes_load_once(void) {
+    static int loaded = 0;
+    if (loaded) return;
+    loaded = 1;
+    char *json = fetch_prefixes_json();
+    if (json) { parse_prefixes(json); free(json); }
+}
+
+static PrefixEntry *prefix_for_exec(const char *exec) {
+    prefixes_load_once();
+    if (g_nprefixes == 0 || !exec || !*exec) return NULL;
+    char first[512]; size_t i = 0;
+    while (exec[i] && exec[i] != ' ' && i < sizeof first - 1) { first[i] = exec[i]; i++; }
+    first[i] = 0;
+    const char *base = strrchr(first, '/');
+    base = base ? base + 1 : first;
+    for (int k = 0; k < g_nprefixes; k++) {
+        const char *bb = strrchr(g_prefixes[k].binname, '/');
+        bb = bb ? bb + 1 : g_prefixes[k].binname;
+        if (bb[0] && !strcmp(bb, base)) return &g_prefixes[k];
+    }
+    return NULL;
+}
+
+static void launch_app_ex(const AppEntry *a) {
+    char cmd[4600];
+    PrefixEntry *pe = prefix_for_exec(a->exec);
+    if (pe) {
+        char envbuf[4096]; envbuf[0] = 0;
+        for (int i = 0; i < pe->nenv; i++) {
+            size_t rem = sizeof envbuf - strlen(envbuf) - 1;
+            strncat(envbuf, "'", rem); rem = sizeof envbuf - strlen(envbuf) - 1;
+            strncat(envbuf, pe->env[i], rem); rem = sizeof envbuf - strlen(envbuf) - 1;
+            strncat(envbuf, "' ", rem);
+        }
+        if (a->term)
+            snprintf(cmd, sizeof cmd, "%s -e env %s%s %s", terminal_cmd(), envbuf, a->exec, pe->args);
+        else
+            snprintf(cmd, sizeof cmd, "env %s%s %s", envbuf, a->exec, pe->args);
+        spawn_cmd(cmd);
+        return;
+    }
+    if (a->term) snprintf(cmd, sizeof cmd, "%s -e %s", terminal_cmd(), a->exec);
+    else snprintf(cmd, sizeof cmd, "%s", a->exec);
+    spawn_cmd(cmd);
+}
+
 /* ------------------------------------------------------------------ main */
 static void usage(void) {
-    puts("sesar-shell: setup | session | menu | power | hud | wallpaper | xres | appmenu | files | uninstall");
+    puts("sesar-shell: setup | session | menu | games | power | hud | wallpaper | xres | appmenu | files | uninstall");
 }
 
 static int x_error(Display *d, XErrorEvent *e) { (void)d; (void)e; return 0; }
@@ -1913,6 +2336,7 @@ int main(int argc, char **argv) {
 
     int rc = 0;
     if (!strcmp(mode, "menu")) rc = run_menu(argc, argv);
+    else if (!strcmp(mode, "games")) rc = run_games();
     else if (!strcmp(mode, "power")) rc = run_power();
     else if (!strcmp(mode, "hud")) rc = run_hud();
     else if (!strcmp(mode, "wallpaper")) rc = run_wallpaper();
