@@ -86,4 +86,4 @@ The wallpaper no longer disappears. Previously it was freed while the desktop wa
 
 ## License
 
-MIT. See `LICENSE`.
+**GPL-3.0**. See `LICENSE`.
