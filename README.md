@@ -1,90 +1,89 @@
 <div align="center">
 
-> *"Fiat lux, fiat X11, fiat sessio."*  
-> ***Ave, Sesare! Ave, imperator!***  
+> *"Fiat lux, fiat X11, fiat sessio."*
+> ***Ave, Sesare! Ave, imperator!***
 ❤️‍🔥
 
 </div>
 
 # Sesar
 
-> *"Un escritorio, en C puro, sin dependencias absurdas."*
+> *"A desktop in pure C, with no absurd dependencies."*
 
-Entorno de escritorio para Linux embebido, escrito en C puro sobre Xlib + FreeType. Sin Python, sin GTK, sin Qt, sin Electron, sin node.
+**A complete desktop environment in a single small program.** Written in plain C on top of Xlib and FreeType. No Python, GTK, Qt, Electron or Node.
 
-## ADVERTENCIA
+---
 
-**Proyecto experimental.** Desarrollado para Gladiator (escritorio Linux sobre Android via Termux + proot-distro). Solo probado en ese entorno. Si queres usarlo en otro contexto, sos libre de hacerlo, pero no garantizamos que funcione. Probalo bajo tu propio riesgo.
+> ⚠️ **Experimental.** Sesar was built for [Gladiator](https://github.com/LexusYTG/gladiator) (a Linux desktop on Android) and has only been tested there. You're free to use it elsewhere, but there are no guarantees. Use at your own risk.
 
-## Que es
+---
 
-Un unico binario que reemplaza a jwm + rofi + polybar + nitrogen + un monton de piezas mas, cada una con sus propias dependencias y configuraciones. Sesar hace todo eso solo:
+## What it is
 
-- **`sesar-shell setup`** — genera `~/.jwmrc` con barra inferior, tema neon, atajos de teclado y menu contextual.
-- **`sesar-shell session`** — aplica recursos de xterm y ejecuta jwm.
-- **`sesar-shell menu`** — menu de inicio con busqueda, categorias y lista de apps `.desktop`. Se abre desde la barra o con Super+Espacio.
-- **`sesar-shell power`** — dialogo de energia / sesion (reiniciar WM, cerrar sesion, cancelar). Super+Esc.
-- **`sesar-shell hud`** — HUD de sistema con CPU, RAM y bateria. Se actualiza cada segundo, se queda arriba.
-- **`sesar-shell wallpaper`** — pinta el fondo synthwave en la raiz de X (hexagono de marca, horizonte, grilla de perspectiva, estrellas).
-- **`sesar-shell xres`** — aplica tema neon a xterm via RESOURCE_MANAGER.
-- **`sesar-shell appmenu`** — imprime el menu de apps en XML para JWM.
-- **`sesar-shell files`** — abre el gestor de archivos disponible.
-- **`sesar-shell uninstall`** — restaura la configuracion anterior de jwm.
+One binary, `sesar-shell`, that takes the place of the usual pile of desktop tools (a menu launcher, a status bar, a wallpaper setter, and more), each of which normally brings its own dependencies and config files. Sesar handles all of it on its own and sets up [JWM](https://joewing.net/projects/jwm/) as the window manager underneath.
 
-## Como funciona
+## Why it exists
 
-Todo el dibujo se hace sobre un canvas de pixeles propio (memoria malloc-eada), con antialiasing por distance fields. FreeType rasteriza la tipografia, la cachea por glifo y se dibuja sobre el canvas. Despues todo se hace `XPutImage` a la ventana.
+A desktop on a phone has to be light, self-contained and easy to install. Pulling in a full toolkit like GTK or Qt, plus half a dozen helper programs, works against all three. Sesar does the whole job in one file.
 
-No hay toolkit: cada boton, cada panel, cada borde, cada glow, es codigo dibujando pixeles directamente. Eso permite el look neon sin depender de un tema de GTK/Qt ni de un compositor con soporte de shaders.
+## What you get
 
-Las ventanas (menu, power, hud) se dibujan con `override_redirect` para que jwm no las toque, se les aplica forma con la extension XShape (esquinas biseladas), y se quedan arriba.
+- **Start menu** with search, categories and your installed apps (`Super + Space`)
+- **Power dialog** to restart the window manager or end the session (`Super + Esc`)
+- **System HUD** showing CPU, RAM and battery, always on top
+- **Synthwave wallpaper**, drawn on the fly: hexagon logo, horizon, perspective grid, stars
+- **Neon theme** used everywhere (cyan, magenta, violet, glowing edges), including your terminal
+- **Taskbar** with workspace switcher, window list and clock, plus a right-click menu on the desktop
+- **App discovery** that reads standard `.desktop` entries, including translated names
+- **Unicode text** with accents, symbols and basic emoji
 
-## Que logra
+## How it works
 
-- **UI completa sin toolkit**: menus, HUD, dialogos, botones, listas.
-- **Tema neon consistente**: cyan, magenta, violeta, glow en cada borde.
-- **Soporte UTF-8** con FreeType (acentos, simbolos, emoji basico).
-- **Integracion con jwm**: barra con paginador, task list, reloj, y menu contextual en el root.
-- **Lectura de `.desktop`**: parsea `/usr/share/applications` y `~/.local/share/applications`, con soporte para `Name[xx]` localizado.
-- **Wallpaper generativo** con synthwave: hexagono, horizonte, grilla, estrellas, vineta.
-- **HUD de sistema** con `/proc/stat`, `/proc/meminfo` y `/sys/class/power_supply`.
+Sesar draws everything itself. Each button, panel, border and glow is painted pixel by pixel onto its own canvas, with smooth edges, and then sent to the screen. Text is rendered with FreeType.
 
-## Compilar
+Because there's no toolkit and no theme engine, the neon look is the same on every system and needs no special compositor. Sesar's pop-up windows (menu, power dialog, HUD) are kept out of the window manager's way, stay on top, and have bevelled corners.
 
-Requiere Xlib, Xext y FreeType2.
+## Commands
 
-    cc -O2 -o sesar-shell sesar-shell.c \
-        $(pkg-config --cflags --libs x11 xext freetype2) -lm
+| Command | What it does |
+|---|---|
+| `sesar-shell setup` | Generates the JWM config (taskbar, theme, shortcuts, right-click menu) |
+| `sesar-shell session` | Applies the terminal theme and starts the desktop |
+| `sesar-shell menu` | Opens the start menu |
+| `sesar-shell power` | Opens the power / session dialog |
+| `sesar-shell hud` | Shows the system HUD |
+| `sesar-shell wallpaper` | Paints the wallpaper |
+| `sesar-shell xres` | Applies the neon theme to xterm |
+| `sesar-shell appmenu` | Prints the app list as a JWM menu |
+| `sesar-shell files` | Opens the available file manager |
+| `sesar-shell uninstall` | Restores your previous JWM setup |
 
-En Ubuntu/Debian:
+## Building
 
-    apt install build-essential pkg-config libx11-dev libxext-dev libfreetype-dev
+You need Xlib, Xext and FreeType2.
 
-## Uso
+```sh
+# Ubuntu / Debian
+apt install build-essential pkg-config libx11-dev libxext-dev libfreetype-dev
 
-    sesar-shell setup       # genera ~/.jwmrc
-    sesar-shell session     # aplica recursos + ejecuta jwm
-    sesar-shell menu        # menu de inicio
-    sesar-shell power       # dialogo de energia
-    sesar-shell hud         # HUD de sistema
-    sesar-shell wallpaper   # pinta el fondo
-    sesar-shell xres        # tema de xterm
-    sesar-shell appmenu     # menu XML para JWM
-    sesar-shell files       # gestor de archivos
-    sesar-shell uninstall   # restaura jwm original
+cc -O2 -o sesar-shell sesar-shell.c \
+    $(pkg-config --cflags --libs x11 xext freetype2) -lm
+```
 
-## Variables
+## Settings
 
-- SESAR_SCALE — escala de UI. Default: calculado por tamano de pantalla.
-- SESAR_FONT — path a un TTF regular. Default: busca en `$PREFIX/share/sesar` y `/usr/share/fonts`.
-- SESAR_FONT_BOLD — path a un TTF bold.
-- SESAR_TERM — terminal por defecto. Default `xterm`.
-- SESAR_TRAY — alto de la barra en pixeles.
+| Variable | Meaning |
+|---|---|
+| `SESAR_SCALE` | UI size. Default: chosen automatically from your screen. |
+| `SESAR_FONT` | Path to a regular TTF font. Default: searches `$PREFIX/share/sesar`, then `/usr/share/fonts`. |
+| `SESAR_FONT_BOLD` | Path to a bold TTF font. |
+| `SESAR_TERM` | Default terminal. Default: `xterm`. |
+| `SESAR_TRAY` | Height of the taskbar, in pixels. |
 
-## Correcciones respecto a la version inicial
+## Fixed since the first version
 
-- Fix en `run_wallpaper`: el pixmap del fondo ahora se guarda en una variable global y no se libera durante la sesion. La version previa hacia `XFreePixmap` sobre el pixmap que el root window tenia asignado como background, lo que dejaba el root sin fondo en el siguiente expose (pantalla negra ciclica cuando algo fuerza un repintado).
+The wallpaper no longer disappears. Previously it was freed while the desktop was still using it, which caused a black screen whenever something forced a redraw.
 
-## Licencia
+## License
 
-MIT. Ver LICENSE.
+MIT. See `LICENSE`.
