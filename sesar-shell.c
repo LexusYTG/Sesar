@@ -4620,6 +4620,8 @@ typedef struct {
     char args[512];
     char graphics[32];
     char audio[32];
+    char hooks_pre[1024];
+    char hooks_post[1024];
 } PrefixEntry;
 
 static PrefixEntry *g_prefixes;
@@ -4723,6 +4725,8 @@ static int parse_prefixes(const char *json) {
         jget_str(start, end, "args",        e.args,        sizeof e.args);
         jget_str(start, end, "graphics",    e.graphics,    sizeof e.graphics);
         jget_str(start, end, "audio",       e.audio,       sizeof e.audio);
+        jget_str(start, end, "hooks_pre",   e.hooks_pre,   sizeof e.hooks_pre);
+        jget_str(start, end, "hooks_post",  e.hooks_post,  sizeof e.hooks_post);
         const char *envk = strstr(start, "\"env\"");
         if (envk && envk < end) {
             const char *eb = strchr(envk, '{');
@@ -4755,6 +4759,17 @@ static uint32_t state_color(const char *s) {
     return C_MUTED;
 }
 
+static void build_hooked_cmd(char *out, size_t n, const char *inner, const PrefixEntry *pe) {
+    if (pe->hooks_pre[0] && pe->hooks_post[0])
+        snprintf(out, n, "%s; %s; %s", pe->hooks_pre, inner, pe->hooks_post);
+    else if (pe->hooks_pre[0])
+        snprintf(out, n, "%s; %s", pe->hooks_pre, inner);
+    else if (pe->hooks_post[0])
+        snprintf(out, n, "%s; %s", inner, pe->hooks_post);
+    else
+        snprintf(out, n, "%s", inner);
+}
+
 static void launch_prefix(const PrefixEntry *e) {
     char envbuf[4096]; envbuf[0] = 0;
     for (int i = 0; i < e->nenv; i++) {
@@ -4763,8 +4778,10 @@ static void launch_prefix(const PrefixEntry *e) {
         strncat(envbuf, e->env[i], rem); rem = sizeof envbuf - strlen(envbuf) - 1;
         strncat(envbuf, "' ", rem);
     }
-    char cmd[4600];
-    snprintf(cmd, sizeof cmd, "env %s%s %s", envbuf, e->binname, e->args);
+    char inner[4600];
+    snprintf(inner, sizeof inner, "env %s%s %s", envbuf, e->binname, e->args);
+    char cmd[8192];
+    build_hooked_cmd(cmd, sizeof cmd, inner, e);
     spawn_cmd(cmd);
 }
 
@@ -4989,7 +5006,7 @@ static PrefixEntry *prefix_for_exec(const char *exec) {
 }
 
 static void launch_app_ex(const AppEntry *a) {
-    char cmd[4600];
+    char cmd[8192];
     PrefixEntry *pe = prefix_for_exec(a->exec);
     if (pe) {
         char envbuf[4096]; envbuf[0] = 0;
@@ -4999,10 +5016,12 @@ static void launch_app_ex(const AppEntry *a) {
             strncat(envbuf, pe->env[i], rem); rem = sizeof envbuf - strlen(envbuf) - 1;
             strncat(envbuf, "' ", rem);
         }
+        char inner[4600];
         if (a->term)
-            snprintf(cmd, sizeof cmd, "%s -e env %s%s %s", terminal_cmd(), envbuf, a->exec, pe->args);
+            snprintf(inner, sizeof inner, "%s -e env %s%s %s", terminal_cmd(), envbuf, a->exec, pe->args);
         else
-            snprintf(cmd, sizeof cmd, "env %s%s %s", envbuf, a->exec, pe->args);
+            snprintf(inner, sizeof inner, "env %s%s %s", envbuf, a->exec, pe->args);
+        build_hooked_cmd(cmd, sizeof cmd, inner, pe);
         spawn_cmd(cmd);
         return;
     }
